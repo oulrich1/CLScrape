@@ -229,12 +229,17 @@ def main():
         median = stats.median(prices)
         stddev = stats.stdev(prices)
         variance = stats.variance(prices)
+        lstd1 = mean - stddev
+        rstd1 = mean + stddev
         print("Min: " + format(min(prices)))
-        print("Avg: " + format(mean))
+        print(" LAV: " + format(lstd1))
+        print(" Avg: " + format(mean))
+        print(" RAV: " + format(rstd1))
         print("Max: " + format(max(prices)))
-        print("Med: " + format(median))
-        print("Dev: " + format(stddev))
-        print("Var: " + format(variance))
+        print(" - - - -")
+        print("Median: " + format(median))
+        print("Deviat: " + format(stddev))
+        print("Varian: " + format(variance))
         print("")
 
     print("Done.")
