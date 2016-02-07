@@ -165,35 +165,128 @@ def cl_remove_non_digits(strPrice):
     return re.sub("\D", "", str(strPrice))
 
 
+
+
 def cl_get_prices(page):
     soup = BS(page, "lxml")
     # get the spans with prices class
-    spans = soup.findAll("span", {"class": "price"})
+    selector = {"class": "price"}
+    spans = soup.findAll("span", selector)
     prices = []
     for el in spans:
         price_string = el.contents;
         prices.append(int(cl_remove_non_digits(price_string)))
     return prices
 
-# CL specific stuff
 def cl_get_prices_from_pages(pages):
     prices = []
     for page in pages:
         prices.append(cl_get_prices(page))
     return prices
 
+
+def cl_get_info_from_page(page):
+    # this is returned, describes cost and location
+    info = {
+        "prices": [],
+        "locations": []
+        }
+
+    # find all row items and store in info
+    soup = BS(page, "lxml")
+    selector = {"class": "row"}
+    rows = soup.findAll("p", selector)
+    for row in rows:
+        # get the spans with price class
+        selector = {"class": "price"}
+        spans_price = row.findAll("span", selector)
+        # get spans with locations
+        selector = {"class": "pnr"}
+        location_wrapper = row.findAll("span", selector)
+
+        # default initialized item information
+        location = ""
+        price = -1
+
+        # Extract the data and store in item info
+        for el in spans_price:  # unwrap iterator
+            price_string = el.contents
+            price = int(cl_remove_non_digits(price_string))
+        for el in location_wrapper: # unwrap iterator
+            location = el.find("small")
+            if location != None:
+                location = location.contents[0]
+
+        # Validation of data and insert into lists of information
+        if location and len(location) != 0 and price >= 0:
+            info["prices"].append(price)
+            info["locations"].append(location)
+
+    return info
+
+def cl_get_info_from_pages(pages):
+    infos = []
+    for page in pages:
+        infos.append(cl_get_info_from_page(page))
+    return infos
+
+
+
+
 def format(a, nsig = 2):
     return str.format('{0:.'+str(nsig)+'f}', a)
 
-def cl_get_domain_name(url):
+def cl_get_base_url(url):
     parsed_uri = urlparse(url)
     domain = '{uri.scheme}://{uri.netloc}/'.format(uri=parsed_uri)
     if domain == ":///":
         return ""
     return domain
 
-def cl_get_domain_names(urls):
-    return [cl_get_domain_name(url) for url in urls]
+def cl_get_base_urls(urls):
+    return [cl_get_base_url(url) for url in urls]
+
+def cl_remove_protocol_identifier(url):
+    strs = ["http://", "https://"]
+    for s in strs:
+        g = re.match(s, url)
+        if g is not None:
+            return url[len(s):] # return base domain name
+    return url # return original if no match found
+
+def cl_get_resource_name(url):
+    domain = cl_get_base_url(url)
+    domain = cl_remove_protocol_identifier(domain)
+    domain = domain.replace("/", "")
+    domain = domain.replace("\\", "")
+    return domain
+
+def cl_get_resource_names(urls):
+    return [cl_get_resource_name(url) for url in urls]
+
+def cl_compute_price_stats(prices):
+    stat_info = {
+        "minimum": min(prices),
+        "maximum": max(prices),
+        "mean": stats.mean(prices),
+        "median": stats.median(prices),
+        "stddev": stats.stdev(prices),
+        "variance": stats.variance(prices),
+        }
+    stat_info["lstd1"] = stat_info["mean"] - stat_info["stddev"]
+    stat_info["rstd1"] = stat_info["mean"] + stat_info["stddev"]
+    return stat_info
+
+# full path to the file.
+def get_path_to_file(fullpath):
+    return "/".join(fullpath.split("/")[0:-1])
+
+# locations is an array of strings
+def cl_write_locations(filename, locations):
+    make_dir_if_not_exists(get_path_to_file(filename))
+    with codecs.open(filename, "w", "utf-8-sig") as f:
+        for location in locations:
+            f.write(location)
 
 # # # # # # # #
 #             #
@@ -205,41 +298,61 @@ def main():
     urls = [
        "https://sfbay.craigslist.org/search/sfc/roo",
        "https://sfbay.craigslist.org/search/nby/roo",
+       "https://sfbay.craigslist.org/search/eby/roo",
        "https://chico.craigslist.org/search/roo",
        "https://redding.craigslist.org/search/roo",
        "https://sacramento.craigslist.org/search/roo"
-    ]
+        ]
+
+    names = [
+        "San Francisco",
+        "North Bay",
+        "East Bay",
+        "Chico",
+        "Redding",
+        "Sacramento"
+        ]
 
     # scraping takes a while..
-    domain_names = cl_get_domain_names(urls)
+    base_urls = cl_get_resource_names(urls)
     pages = get_pages(urls)
 
     # save pages just in case
-    filenames = get_filenames(urls)
+    filenames = map(lambda x: x + ".html", names)
+    print(filenames)
     write_pages_to_files(pages, filenames, path="./scraped/")
 
-    # get prices
-    pricess = cl_get_prices_from_pages(pages)
+    # get the prices on cl
+        # pricess = cl_get_prices_from_pages(pages)
+    infos = cl_get_info_from_pages(pages)
 
-    # average prices
-    for idx, prices in enumerate(pricess):
-        # print("-- " + domain_names[idx] + " --")
-        print("-- " + urls[idx] + " --")
-        mean = stats.mean(prices)
-        median = stats.median(prices)
-        stddev = stats.stdev(prices)
-        variance = stats.variance(prices)
-        lstd1 = mean - stddev
-        rstd1 = mean + stddev
-        print("Min: " + format(min(prices)))
-        print(" LAV: " + format(lstd1))
-        print(" Avg: " + format(mean))
-        print(" RAV: " + format(rstd1))
-        print("Max: " + format(max(prices)))
+    # some stats on the prices, does not include prices
+    stat_info = {
+        "price_stats": [],
+        "locations": []
+        }
+
+    # set the data
+    for info in infos:
+        stat_info["price_stats"].append(cl_compute_price_stats(info["prices"])),
+        stat_info["locations"].append(info["locations"])
+
+    for info in infos:
+        cl_write_locations("./locations/locations.txt", info["locations"])
+
+    # show the average prices
+        # for idx, prices in enumerate(pricess):
+    for idx, stats in enumerate(stat_info["price_stats"]):
+        print("-- " + names[idx] + " --")
+        print("Min: " + format(stats["minimum"]))
+        print(" LAV: " + format(stats["lstd1"]))
+        print(" Avg: " + format(stats["mean"]))
+        print(" RAV: " + format(stats["rstd1"]))
+        print("Max: " + format(stats["maximum"]))
         print(" - - - -")
-        print("Median: " + format(median))
-        print("Deviat: " + format(stddev))
-        print("Varian: " + format(variance))
+        print("Median: " + format(stats["median"]))
+        print("Deviat: " + format(stats["stddev"]))
+        print("Varian: " + format(stats["variance"]))
         print("")
 
     print("Done.")
