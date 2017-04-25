@@ -82,7 +82,7 @@ def write_pages_to_files(pages, filenames, path="./"):
     for idx, filename in enumerate(filenames):
         make_dir_if_not_exists(path)
         with codecs.open(path + filename, "w", "utf-8-sig") as f:
-            f.write(pages[idx])
+            f.write(pages[idx][1])
 
 def is_media(url):
     media=[".jpg", ".jpeg", ".png"]
@@ -188,18 +188,20 @@ def cl_get_prices_from_pages(pages):
 def cl_get_info_from_page(page):
     # this is returned, describes cost and location
     info = {
-        "prices": [],
-        "locations": []
+        "prices": [],     # all prices that resulted from query
+        "locations": [],  # all locations that resulted from query
+        "label": ""       # names this result (ie: location name)
         }
 
     # find all row items and store in info
-    soup = BS(page, "lxml")
+    info["label"] = page[0]
+    soup = BS(page[1], "lxml")
     selector = {"class": "result-row"}
     rows = soup.findAll("li", selector)
-    infos = []  # as HTML
+    tempInfos = []  # as HTML
     for row in rows:
-        infos.append(row.findAll("p", {"class": "result-info"})[0])
-    for row in infos:
+        tempInfos.append(row.findAll("p", {"class": "result-info"})[0])
+    for row in tempInfos:
         # get the spans with price class
         selector = {"class": "result-price"}
         spans_price = row.findAll("span", selector)
@@ -286,6 +288,8 @@ def get_path_to_file(fullpath):
 def cl_write_locations(filename, locations):
     make_dir_if_not_exists(get_path_to_file(filename))
     with codecs.open(filename, "w", "utf-8-sig") as f:
+        f.write("[Locations]: " + str(filename))
+    with codecs.open(filename, "a", "utf-8-sig") as f:
         for location in locations:
             f.write(location)
 
@@ -296,42 +300,66 @@ def cl_write_locations(filename, locations):
 # # # # # # # #
 def main():
 
-    searchRoot=0
-    searchRootInc=120
-    searchRootQuery = "&s="
-    searchRootQueriesPerLocation=3
 
-    maxMinQuery = "min_price=500&max_price=4000"
+
     urls = [
-       "https://sfbay.craigslist.org/search/sfc/roo?" + maxMinQuery,
-       "https://sfbay.craigslist.org/search/nby/roo?" + maxMinQuery,
-       "https://sfbay.craigslist.org/search/eby/roo?" + maxMinQuery,
-       "https://sfbay.craigslist.org/search/pen/roo?" + maxMinQuery,
-       "https://sacramento.craigslist.org/search/roo?" + maxMinQuery
+       "https://sfbay.craigslist.org/search/sfc/roo?",
+       "https://sfbay.craigslist.org/search/nby/roo?",
+       "https://sfbay.craigslist.org/search/pen/roo?",
+       "https://elpaso.craigslist.org/search/pen/roo?",
+        "https://austin.craigslist.org/search/roo?",
+        "https://indianapolis.craigslist.org/search/roo?",
         ]
 
-    names = [
-        "San Francisco",
-        "North Bay",
-        "East Bay",
-        "Peninsula",
-        "Sacramento"
-        ]
+    maxMinQuery = "&min_price=500&max_price=4000"
+    for i in range(len(urls)):
+        urls[i] += maxMinQuery
+
+    locationQueries = [
+        { "name": "San Francisco",
+          "locations":
+            [ "", "Financial", "Mission", "Sunset", "Richmond" ] },
+        { "name": "North Bay",
+          "locations":
+            ["",  "sausalito", "larkspur", "mill+valley", "san+rafael", "novato", "petaluma", "rohnert+park", "windsor" ] },
+        { "name": "Peninsula",
+          "locations":
+            ["",  "palo+alto", "sunnyvale", "san+mateo" ] },
+        { "name": "El Paso",
+          "locations": [""] },
+        { "name": "Austin",
+          "locations": [""] },
+        { "name": "Indianapolis",
+          "locations": [""] },
+    ]
 
     # scraping takes a while..
     # base_urls = cl_get_resource_names(urls)
     # pages = get_pages(urls)
     # This scrapes multiple times for one location (gathers history)
     pages = []
-    for url in urls:
-        url_combined_pages = ""
-        for query in range(searchRootQueriesPerLocation):
-            u = url + searchRootQuery + str(searchRootInc*(query+searchRoot))
-            url_combined_pages += ('\n' + make_get_request(u))
-        pages.append(url_combined_pages)
+    for idx, locationQuery in enumerate(locationQueries):
+        url = urls[idx]
+        for location in locationQuery["locations"]:
+            locationName = locationQuery["name"]
+            u = url
+            if len(location) > 0:
+                locationName += " (" + location + ")"
+                u += "&query=" + location
+
+            url_combined_pages = ""
+            searchRoot=0
+            searchRootInc=120
+            searchRootQuery = "&s="
+            searchRootQueriesPerLocation=3
+            for query in range(searchRootQueriesPerLocation):
+                u += searchRootQuery + str(searchRootInc*(query+searchRoot))
+                print("Getting: " + u)
+                url_combined_pages += (make_get_request(u) + '\n')
+            pages.append([locationName, url_combined_pages])
 
     # save pages just in case
-    filenames = map(lambda x: x + ".html", names)
+    filenames = map(lambda x: x[0] + ".html", pages)
     print(filenames)
     write_pages_to_files(pages, filenames, path="./scraped/")
 
@@ -341,14 +369,16 @@ def main():
 
     # some stats on the prices, does not include prices
     stat_info = {
-        "price_stats": [],
-        "locations": []
+        "price_stats": [],   # stat per query
+        "locations": [],     # [] of locations per query
+        "labels": [],        # location-names of each query
         }
 
     # set the data
     for info in infos:
         stat_info["price_stats"].append(cl_compute_price_stats(info["prices"])),
         stat_info["locations"].append(info["locations"])
+        stat_info["labels"].append(info["label"])
 
     for info in infos:
         cl_write_locations("./locations/locations.txt", info["locations"])
@@ -356,7 +386,7 @@ def main():
     # show the average prices
         # for idx, prices in enumerate(pricess):
     for idx, stats in enumerate(stat_info["price_stats"]):
-        print("-- " + names[idx] + " --")
+        print("-- " + stat_info["labels"][idx] + " --")
         print("Min: " + format(stats["minimum"]))
         print(" LAV: " + format(stats["lstd1"]))
         print(" Avg: " + format(stats["mean"]))
