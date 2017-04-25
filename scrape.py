@@ -194,14 +194,17 @@ def cl_get_info_from_page(page):
 
     # find all row items and store in info
     soup = BS(page, "lxml")
-    selector = {"class": "row"}
-    rows = soup.findAll("p", selector)
+    selector = {"class": "result-row"}
+    rows = soup.findAll("li", selector)
+    infos = []  # as HTML
     for row in rows:
+        infos.append(row.findAll("p", {"class": "result-info"})[0])
+    for row in infos:
         # get the spans with price class
-        selector = {"class": "price"}
+        selector = {"class": "result-price"}
         spans_price = row.findAll("span", selector)
         # get spans with locations
-        selector = {"class": "pnr"}
+        selector = {"class": "result-hood"}
         location_wrapper = row.findAll("span", selector)
 
         # default initialized item information
@@ -213,9 +216,7 @@ def cl_get_info_from_page(page):
             price_string = el.contents
             price = int(cl_remove_non_digits(price_string))
         for el in location_wrapper: # unwrap iterator
-            location = el.find("small")
-            if location != None:
-                location = location.contents[0]
+            location = el.contents[0].strip()
 
         # Validation of data and insert into lists of information
         if location and len(location) != 0 and price >= 0:
@@ -295,27 +296,39 @@ def cl_write_locations(filename, locations):
 # # # # # # # #
 def main():
 
+    searchRoot=0
+    searchRootInc=120
+    searchRootQuery = "&s="
+    searchRootQueriesPerLocation=3
+
+    maxMinQuery = "min_price=500&max_price=4000"
     urls = [
-       "https://sfbay.craigslist.org/search/sfc/roo",
-       "https://sfbay.craigslist.org/search/nby/roo",
-       "https://sfbay.craigslist.org/search/eby/roo",
-       "https://chico.craigslist.org/search/roo",
-       "https://redding.craigslist.org/search/roo",
-       "https://sacramento.craigslist.org/search/roo"
+       "https://sfbay.craigslist.org/search/sfc/roo?" + maxMinQuery,
+       "https://sfbay.craigslist.org/search/nby/roo?" + maxMinQuery,
+       "https://sfbay.craigslist.org/search/eby/roo?" + maxMinQuery,
+       "https://sfbay.craigslist.org/search/pen/roo?" + maxMinQuery,
+       "https://sacramento.craigslist.org/search/roo?" + maxMinQuery
         ]
 
     names = [
         "San Francisco",
         "North Bay",
         "East Bay",
-        "Chico",
-        "Redding",
+        "Peninsula",
         "Sacramento"
         ]
 
     # scraping takes a while..
-    base_urls = cl_get_resource_names(urls)
-    pages = get_pages(urls)
+    # base_urls = cl_get_resource_names(urls)
+    # pages = get_pages(urls)
+    # This scrapes multiple times for one location (gathers history)
+    pages = []
+    for url in urls:
+        url_combined_pages = ""
+        for query in range(searchRootQueriesPerLocation):
+            u = url + searchRootQuery + str(searchRootInc*(query+searchRoot))
+            url_combined_pages += ('\n' + make_get_request(u))
+        pages.append(url_combined_pages)
 
     # save pages just in case
     filenames = map(lambda x: x + ".html", names)
